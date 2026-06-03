@@ -7,6 +7,7 @@ use std::{
 pub enum NormalizeError {
     EmptyInput,
     EscapesFilesystemRoot,
+    FailedToGetCurDir,
     InvalidMultiplePrefix,
 }
 
@@ -16,16 +17,16 @@ pub struct Normalizer {
 }
 
 impl Normalizer {
-    pub fn new(root: &Path, origin_base: &Path) -> std::io::Result<Self> {
-        let cwd = env::current_dir()?;
-        Ok(Self::new_with_cwd(root, origin_base, &cwd))
+    pub fn new(root: &Path, origin_base: &Path) -> Result<Self, NormalizeError> {
+        let cwd = env::current_dir().map_err(|_| NormalizeError::FailedToGetCurDir)?;
+        Self::new_with_cwd(root, origin_base, &cwd)
     }
 
-    fn new_with_cwd(root: &Path, origin_base: &Path, cwd: &Path) -> Self {
-        Self {
-            root: absolutize(root, cwd),
-            origin_base: absolutize(origin_base, cwd),
-        }
+    fn new_with_cwd(root: &Path, origin_base: &Path, cwd: &Path) -> Result<Self, NormalizeError> {
+        Ok(Self {
+            root: normalize_components(&absolutize(root, cwd))?,
+            origin_base: normalize_components(&absolutize(origin_base, cwd))?,
+        })
     }
 
     pub fn normalize(&self, input: &Path) -> Result<PathBuf, NormalizeError> {
@@ -102,7 +103,7 @@ fn normalize_components(path: &Path) -> Result<PathBuf, NormalizeError> {
 }
 
 /// # Invariant
-/// `target` and `root` must be an absolute paths.
+/// `target` and `root` must be absolute paths.
 /// Violations indicate a bug in the caller.
 fn make_relative_to_root(target: PathBuf, mut root: &Path) -> PathBuf {
     debug_assert!(
@@ -138,7 +139,7 @@ mod tests {
     #[test]
     fn empty_path_returns_error() {
         let fake_cwd = Path::new("/sandbox");
-        let normalizer = Normalizer::new_with_cwd(Path::new(""), Path::new(""), fake_cwd);
+        let normalizer = Normalizer::new_with_cwd(Path::new(""), Path::new(""), fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new(""));
         assert!(matches!(result, Err(NormalizeError::EmptyInput)));
     }
@@ -146,9 +147,8 @@ mod tests {
     #[test]
     fn plain_filename_with_root_at_cwd_returns_filename() {
         let fake_cwd = Path::new("/sandbox");
-        let normalizer = Normalizer::new_with_cwd(Path::new(""), Path::new(""), fake_cwd);
+        let normalizer = Normalizer::new_with_cwd(Path::new(""), Path::new(""), fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("main.rs"));
-        assert!(result.is_ok());
         assert_eq!(result.unwrap(), Path::new("main.rs"));
     }
 
@@ -157,9 +157,8 @@ mod tests {
         let fake_cwd = Path::new("/sandbox");
         let root = Path::new("");
         let origin_base = Path::new("src");
-        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd);
+        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("../main.rs"));
-        assert!(result.is_ok());
         assert_eq!(result.unwrap(), Path::new("main.rs"));
     }
 
@@ -168,9 +167,8 @@ mod tests {
         let fake_cwd = Path::new("/sandbox");
         let root = Path::new("/project");
         let origin_base = Path::new("/project/src");
-        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd);
+        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("main.rs"));
-        assert!(result.is_ok());
         assert_eq!(result.unwrap(), Path::new("src/main.rs"));
     }
 
@@ -179,9 +177,8 @@ mod tests {
         let fake_cwd = Path::new("/sandbox");
         let root = Path::new("/project");
         let origin_base = Path::new("/outside");
-        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd);
+        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("main.rs"));
-        assert!(result.is_ok());
         assert_eq!(result.unwrap(), Path::new("../outside/main.rs"));
     }
 
@@ -190,9 +187,8 @@ mod tests {
         let fake_cwd = Path::new("/sandbox");
         let root = Path::new("project");
         let origin_base = Path::new("/sandbox/outside");
-        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd);
+        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("main.rs"));
-        assert!(result.is_ok());
         assert_eq!(result.unwrap(), Path::new("../outside/main.rs"));
     }
 
@@ -201,9 +197,8 @@ mod tests {
         let fake_cwd = Path::new("/sandbox");
         let root = Path::new("project");
         let origin_base = Path::new("/sandbox/outside");
-        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd);
+        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("/sandbox/main.rs"));
-        assert!(result.is_ok());
         assert_eq!(result.unwrap(), Path::new("../main.rs"));
     }
 
@@ -212,9 +207,8 @@ mod tests {
         let fake_cwd = Path::new("/sandbox");
         let root = Path::new("/sandbox/project");
         let origin_base = Path::new("outside");
-        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd);
+        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("main.rs"));
-        assert!(result.is_ok());
         assert_eq!(result.unwrap(), Path::new("../outside/main.rs"));
     }
 
@@ -223,8 +217,18 @@ mod tests {
         let fake_cwd = Path::new("/sandbox");
         let root = Path::new("project");
         let origin_base = Path::new("outside");
-        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd);
+        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("../../../main.rs"));
         assert!(matches!(result, Err(NormalizeError::EscapesFilesystemRoot)));
+    }
+
+    #[test]
+    fn should_handle_unnormalized_root() {
+        let fake_cwd = Path::new("/sandbox");
+        let root = Path::new("../project");
+        let origin_base = Path::new("outside");
+        let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
+        let result = normalizer.normalize(Path::new("main.rs"));
+        assert_eq!(result.unwrap(), Path::new("../sandbox/outside/main.rs"));
     }
 }
