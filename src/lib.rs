@@ -1,10 +1,13 @@
-use std::{env, path::{Component, Path, PathBuf}};
+use std::{
+    env,
+    path::{Component, Path, PathBuf},
+};
 
 #[derive(Debug)]
 pub enum NormalizeError {
     EmptyInput,
-    CwdNotAbsolute,
     InputOutsideFileSystemRoot,
+    PathHasMultipleInternalPrefix,
 }
 
 pub struct Normalizer {
@@ -13,16 +16,19 @@ pub struct Normalizer {
 }
 
 impl Normalizer {
-    pub fn new(root: &Path, origin: &Path,) -> std::io::Result<Self> {
+    pub fn new(root: &Path, origin: &Path) -> std::io::Result<Self> {
         let cwd = env::current_dir()?;
         Ok(Self::new_with_cwd(root, origin, &cwd))
     }
 
-    fn new_with_cwd(root: &Path, origin: &Path, cwd: &Path,) -> Self {
-        Self { root: absolutize(root, cwd), origin: absolutize(origin, cwd) }
+    fn new_with_cwd(root: &Path, origin: &Path, cwd: &Path) -> Self {
+        Self {
+            root: absolutize(root, cwd),
+            origin: absolutize(origin, cwd),
+        }
     }
 
-    pub fn normalize_path(&self, input: &Path,) -> Result<PathBuf, NormalizeError> {
+    pub fn normalize_path(&self, input: &Path) -> Result<PathBuf, NormalizeError> {
         if input.as_os_str().is_empty() {
             return Err(NormalizeError::EmptyInput);
         }
@@ -40,7 +46,15 @@ fn absolutize(path: &Path, absolute_prefix: &Path) -> PathBuf {
     }
 }
 
+/// # Invariant
+/// `path` must be an absolute path.
+/// Violations indicate a bug in the caller.
 fn normalize_lexically(path: &Path) -> Result<PathBuf, NormalizeError> {
+    debug_assert!(
+        path.is_absolute(),
+        "Input must be an absolute path: {:?}",
+        path
+    );
     let mut lexical = PathBuf::new();
     let mut iter = path.components().peekable();
 
@@ -48,8 +62,7 @@ fn normalize_lexically(path: &Path) -> Result<PathBuf, NormalizeError> {
     // Here we treat the Windows path "C:\" as a single "root" even though
     // `components` splits it into two: (Prefix, RootDir).
     let root = match iter.peek() {
-        Some(Component::ParentDir) => return Err(NormalizeError::InputOutsideFileSystemRoot),
-        Some(p @ Component::RootDir) | Some(p @ Component::CurDir) => {
+        Some(p @ Component::RootDir) => {
             lexical.push(p);
             iter.next();
             lexical.as_os_str().len()
@@ -63,14 +76,16 @@ fn normalize_lexically(path: &Path) -> Result<PathBuf, NormalizeError> {
             }
             lexical.as_os_str().len()
         }
-        None => return Ok(PathBuf::new()),
-        Some(Component::Normal(_)) => 0,
+        _ => unreachable!(
+            "normalize_lexically received a non-absolute path: {:?}",
+            path
+        ),
     };
 
     for component in iter {
         match component {
             Component::RootDir => unreachable!(),
-            Component::Prefix(_) => return Err(NormalizeError::InputOutsideFileSystemRoot),
+            Component::Prefix(_) => return Err(NormalizeError::PathHasMultipleInternalPrefix),
             Component::CurDir => continue,
             Component::ParentDir => {
                 // It's an error if ParentDir causes us to go above the "root".
@@ -86,7 +101,20 @@ fn normalize_lexically(path: &Path) -> Result<PathBuf, NormalizeError> {
     Ok(lexical)
 }
 
+/// # Invariant
+/// `target` and `root` must be an absolute paths.
+/// Violations indicate a bug in the caller.
 fn normalize_to_root(target: PathBuf, mut root: &Path) -> PathBuf {
+    debug_assert!(
+        target.is_absolute(),
+        "Target must be an absolute path: {:?}",
+        target
+    );
+    debug_assert!(
+        root.is_absolute(),
+        "Root must be an absolute path: {:?}",
+        root
+    );
     let mut prefix = PathBuf::new();
     loop {
         if let Ok(suffix) = target.strip_prefix(root) {
@@ -197,6 +225,9 @@ mod tests {
         let origin_dir = Path::new("outside");
         let normalizer = Normalizer::new_with_cwd(root, origin_dir, fake_cwd);
         let result = normalizer.normalize_path(Path::new("../../../main.rs"));
-        assert!(matches!(result, Err(NormalizeError::InputOutsideFileSystemRoot)));
+        assert!(matches!(
+            result,
+            Err(NormalizeError::InputOutsideFileSystemRoot)
+        ));
     }
 }
