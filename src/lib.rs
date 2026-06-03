@@ -26,13 +26,18 @@ pub fn normalize_path(root: &Path, origin: &Path, input: &Path) -> Result<PathBu
     Ok(normalize_to_root(&normalized_origin_join_input, root))
 }
 
-fn normalize_to_root(target_path: &Path, root: &Path,) -> PathBuf {
-    match target_path.strip_prefix(root) {
-        Ok(normalized_path) => normalized_path.to_path_buf(),
-        Err(_) => {
-            let root_parent = root.parent().expect("failed cuz target_path is not absolute");
-            PathBuf::from("..").join(normalize_to_root(target_path, root_parent))
-        },
+fn normalize_to_root(target: &Path, mut root: &Path) -> PathBuf {
+    let mut prefix = PathBuf::new();
+    loop {
+        if let Ok(suffix) = target.strip_prefix(root) {
+            return prefix.join(suffix);
+        }
+        if let Some(new_root) = root.parent() {
+            prefix.push("..");
+            root = new_root;
+        } else {
+            return target.to_path_buf();
+        }
     }
 }
 
