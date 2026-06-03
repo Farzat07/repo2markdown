@@ -4,6 +4,7 @@ use std::{env, path::{Component, Path, PathBuf}};
 pub enum NormalizeError {
     EmptyInput,
     CwdNotAbsolute,
+    InputOutsideFileSystemRoot,
 }
 
 pub fn normalize_path(root: &Path, origin: &Path, input: &Path) -> Result<PathBuf, NormalizeError> {
@@ -35,20 +36,54 @@ fn normalize_path_with_preset_cwd(
     } else {
         cwd.join(root)
     };
-    let mut stack = Vec::new();
-    for component in input.components() {
-        match component {
-            Component::CurDir => (),
-            Component::ParentDir => {
-                stack.pop();
+    let normalized_input = normalize_lexically(&input)?;
+    Ok(normalize_to_root(normalized_input, &root))
+}
+
+fn normalize_lexically(path: &Path) -> Result<PathBuf, NormalizeError> {
+    let mut lexical = PathBuf::new();
+    let mut iter = path.components().peekable();
+
+    // Find the root, if any, and add it to the lexical path.
+    // Here we treat the Windows path "C:\" as a single "root" even though
+    // `components` splits it into two: (Prefix, RootDir).
+    let root = match iter.peek() {
+        Some(Component::ParentDir) => return Err(NormalizeError::InputOutsideFileSystemRoot),
+        Some(p @ Component::RootDir) | Some(p @ Component::CurDir) => {
+            lexical.push(p);
+            iter.next();
+            lexical.as_os_str().len()
+        }
+        Some(Component::Prefix(prefix)) => {
+            lexical.push(prefix.as_os_str());
+            iter.next();
+            if let Some(p @ Component::RootDir) = iter.peek() {
+                lexical.push(p);
+                iter.next();
             }
-            Component::Prefix(_) => stack.push(component),
-            Component::Normal(_) => stack.push(component),
-            Component::RootDir => stack.push(component),
+            lexical.as_os_str().len()
+        }
+        None => return Ok(PathBuf::new()),
+        Some(Component::Normal(_)) => 0,
+    };
+
+    for component in iter {
+        match component {
+            Component::RootDir => unreachable!(),
+            Component::Prefix(_) => return Err(NormalizeError::InputOutsideFileSystemRoot),
+            Component::CurDir => continue,
+            Component::ParentDir => {
+                // It's an error if ParentDir causes us to go above the "root".
+                if lexical.as_os_str().len() == root {
+                    return Err(NormalizeError::InputOutsideFileSystemRoot);
+                } else {
+                    lexical.pop();
+                }
+            }
+            Component::Normal(path) => lexical.push(path),
         }
     }
-    let normalized_input = PathBuf::from_iter(stack);
-    Ok(normalize_to_root(normalized_input, &root))
+    Ok(lexical)
 }
 
 fn normalize_to_root(target: PathBuf, mut root: &Path) -> PathBuf {
@@ -152,5 +187,15 @@ mod tests {
         let input = Path::new("main.rs");
         let result = normalize_path_with_preset_cwd(root, origin_dir, input, fake_cwd);
         assert_eq!(result.unwrap(), Path::new("../outside/main.rs"));
+    }
+
+    #[test]
+    fn input_cannot_go_above_root() {
+        let fake_cwd = Path::new("/sandbox");
+        let root = Path::new("project");
+        let origin_dir = Path::new("outside");
+        let input = Path::new("../../../main.rs");
+        let result = normalize_path_with_preset_cwd(root, origin_dir, input, fake_cwd);
+        assert!(matches!(result, Err(NormalizeError::InputOutsideFileSystemRoot)));
     }
 }
