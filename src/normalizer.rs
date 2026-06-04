@@ -4,6 +4,13 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+pub struct NormalizedPath {
+    /// Path normalized and made absolute, suitable for filesystem access
+    pub absolute: PathBuf,
+    /// Path normalized and made relative to root, used as identifier
+    pub relative: PathBuf,
+}
+
 #[derive(Debug)]
 pub enum NormalizeError {
     EmptyInput,
@@ -51,13 +58,16 @@ impl Normalizer {
         })
     }
 
-    pub fn normalize(&self, input: &Path) -> Result<PathBuf, NormalizeError> {
+    pub fn normalize(&self, input: &Path) -> Result<NormalizedPath, NormalizeError> {
         if input.as_os_str().is_empty() {
             return Err(NormalizeError::EmptyInput);
         }
         let input = absolutize(input, &self.origin_base);
         let normalized_input = normalize_components(&input)?;
-        Ok(make_relative_to_root(normalized_input, &self.root))
+        Ok(NormalizedPath {
+            relative: make_relative_to_root(&normalized_input, &self.root),
+            absolute: normalized_input,
+        })
     }
 }
 
@@ -129,7 +139,7 @@ fn normalize_components(path: &Path) -> Result<PathBuf, NormalizeError> {
 /// # Invariant
 /// `target` and `root` must be absolute paths.
 /// Violations indicate a bug in the caller.
-fn make_relative_to_root(target: PathBuf, mut root: &Path) -> PathBuf {
+fn make_relative_to_root(target: &Path, mut root: &Path) -> PathBuf {
     debug_assert!(
         target.is_absolute(),
         "Target must be an absolute path: {:?}",
@@ -149,7 +159,7 @@ fn make_relative_to_root(target: PathBuf, mut root: &Path) -> PathBuf {
             upward.push("..");
             root = new_root;
         } else {
-            return target;
+            return target.to_path_buf();
         }
     }
 }
@@ -173,7 +183,7 @@ mod tests {
         let fake_cwd = Path::new("/sandbox");
         let normalizer = Normalizer::new_with_cwd(Path::new(""), Path::new(""), fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("main.rs"));
-        assert_eq!(result.unwrap(), Path::new("main.rs"));
+        assert_eq!(result.unwrap().relative, Path::new("main.rs"));
     }
 
     #[test]
@@ -183,7 +193,7 @@ mod tests {
         let origin_base = Path::new("src");
         let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("../main.rs"));
-        assert_eq!(result.unwrap(), Path::new("main.rs"));
+        assert_eq!(result.unwrap().relative, Path::new("main.rs"));
     }
 
     #[test]
@@ -193,7 +203,7 @@ mod tests {
         let origin_base = Path::new("/project/src");
         let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("main.rs"));
-        assert_eq!(result.unwrap(), Path::new("src/main.rs"));
+        assert_eq!(result.unwrap().relative, Path::new("src/main.rs"));
     }
 
     #[test]
@@ -203,7 +213,7 @@ mod tests {
         let origin_base = Path::new("/outside");
         let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("main.rs"));
-        assert_eq!(result.unwrap(), Path::new("../outside/main.rs"));
+        assert_eq!(result.unwrap().relative, Path::new("../outside/main.rs"));
     }
 
     #[test]
@@ -213,7 +223,7 @@ mod tests {
         let origin_base = Path::new("/sandbox/outside");
         let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("main.rs"));
-        assert_eq!(result.unwrap(), Path::new("../outside/main.rs"));
+        assert_eq!(result.unwrap().relative, Path::new("../outside/main.rs"));
     }
 
     #[test]
@@ -223,7 +233,7 @@ mod tests {
         let origin_base = Path::new("/sandbox/outside");
         let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("/sandbox/main.rs"));
-        assert_eq!(result.unwrap(), Path::new("../main.rs"));
+        assert_eq!(result.unwrap().relative, Path::new("../main.rs"));
     }
 
     #[test]
@@ -233,7 +243,7 @@ mod tests {
         let origin_base = Path::new("outside");
         let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("main.rs"));
-        assert_eq!(result.unwrap(), Path::new("../outside/main.rs"));
+        assert_eq!(result.unwrap().relative, Path::new("../outside/main.rs"));
     }
 
     #[test]
@@ -256,6 +266,9 @@ mod tests {
         let origin_base = Path::new("outside");
         let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("main.rs"));
-        assert_eq!(result.unwrap(), Path::new("../sandbox/outside/main.rs"));
+        assert_eq!(
+            result.unwrap().relative,
+            Path::new("../sandbox/outside/main.rs")
+        );
     }
 }

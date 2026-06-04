@@ -29,10 +29,10 @@ pub fn run<R: Read, W: Write>(
         }
 
         let path = Path::new(OsStr::from_bytes(segment));
-        let bytes = std::fs::read(origin_base.join(path))?;
-        let path = normalizer.normalize(path)?;
+        let normalized_path = normalizer.normalize(path)?;
+        let bytes = std::fs::read(normalized_path.absolute)?;
 
-        owned.push((path, bytes));
+        owned.push((normalized_path.relative, bytes));
     }
 
     // convert to expected renderer input
@@ -48,10 +48,20 @@ pub fn run<R: Read, W: Write>(
 
 #[cfg(test)]
 mod tests {
-    use super::run;
-    use std::fs;
     use std::io::Cursor;
     use std::path::Path;
+    use std::{env, fs};
+
+    use super::run;
+
+    fn paths_to_null_sep_bytes(file_paths: &[&Path]) -> Vec<u8> {
+        let mut output = Vec::new();
+        for path in file_paths {
+            output.extend(path.as_os_str().as_encoded_bytes());
+            output.push(0);
+        }
+        output
+    }
 
     #[test]
     fn cli_with_empty_input_produces_empty_project() {
@@ -155,5 +165,28 @@ mod tests {
         fs::remove_file("sandbox/src/main.rs").unwrap();
         fs::remove_dir("sandbox/src").unwrap();
         fs::remove_dir("sandbox").unwrap();
+    }
+
+    #[test]
+    fn cli_ignores_origin_when_input_path_is_absolute() {
+        let temp_dir = env::temp_dir();
+        let filepath = temp_dir.join("test_main.rs");
+        fs::create_dir_all(temp_dir).unwrap();
+        fs::write(&filepath, "fn main() {}").unwrap();
+
+        // stdin provides path relative to origin_base
+        let input = Cursor::new(paths_to_null_sep_bytes(&[&filepath]));
+        let mut output = Vec::new();
+        let root = Path::new("project");
+        let origin_base = Path::new("sandbox/src");
+
+        run(input, &mut output, root, origin_base).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+
+        // Must contain file content → proves correct reading
+        assert!(output.contains("fn main() {}"));
+
+        fs::remove_file(filepath).unwrap();
     }
 }
