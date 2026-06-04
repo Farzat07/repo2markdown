@@ -41,7 +41,14 @@ pub fn run<R: Read, W: Write>(
         .map(|(p, b)| (p.as_path(), b.as_slice()))
         .collect();
 
-    let rendered = render("Project name", &refs)?;
+    let project_name = if let Some(os_str_name) = root.file_name()
+        && let Some(name) = os_str_name.to_str()
+    {
+        name
+    } else {
+        "Project Outline"
+    };
+    let rendered = render(project_name, &refs)?;
     output.write_all(rendered.as_bytes())?;
     Ok(())
 }
@@ -70,10 +77,10 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let input = Cursor::new(b"");
         let mut output = Vec::new();
-        let root = temp_dir.path();
+        let root = temp_dir.path().join("Project name");
         let origin_base = temp_dir.path();
 
-        run(input, &mut output, &root, &origin_base).unwrap();
+        run(input, &mut output, &root, origin_base).unwrap();
 
         assert_eq!(String::from_utf8(output).unwrap(), "# Project name\n");
     }
@@ -169,11 +176,26 @@ mod tests {
         let root = temp_dir2.path();
         fs::write(&filepath, "fn main() {}").unwrap();
 
-        run(input, &mut output, &root, &origin_base).unwrap();
+        run(input, &mut output, root, origin_base).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
         // Must contain file content → proves correct reading
         assert!(output.contains("fn main() {}"));
+    }
+
+    #[test]
+    fn project_name_is_derived_from_root_by_default_even_if_directory_does_not_exist() {
+        let temp_dir = tempdir().unwrap();
+        let origin_base = temp_dir.path();
+        let input = Cursor::new(b"");
+        let mut output = Vec::new();
+        let root = temp_dir.path().join("repo2markdown");
+
+        run(input, &mut output, &root, origin_base).unwrap();
+
+        let output_str = String::from_utf8(output).unwrap();
+
+        assert_eq!(output_str, "# repo2markdown\n");
     }
 }
