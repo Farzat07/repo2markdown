@@ -14,12 +14,14 @@ fn main() {
 pub fn run<R: Read, W: Write>(
     mut input: R,
     mut output: W,
+    root: &Path,
+    origin_base: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = Vec::new();
     input.read_to_end(&mut buf)?;
 
     let mut owned = Vec::new();
-    let normalizer = Normalizer::new(Path::new("."), Path::new("."))?;
+    let normalizer = Normalizer::new(root, origin_base)?;
 
     for segment in buf.split(|b| *b == 0) {
         if segment.is_empty() {
@@ -27,8 +29,8 @@ pub fn run<R: Read, W: Write>(
         }
 
         let path = Path::new(OsStr::from_bytes(segment));
+        let bytes = std::fs::read(origin_base.join(path))?;
         let path = normalizer.normalize(path)?;
-        let bytes = std::fs::read(&path)?;
 
         owned.push((path, bytes));
     }
@@ -49,13 +51,16 @@ mod tests {
     use super::run;
     use std::fs;
     use std::io::Cursor;
+    use std::path::Path;
 
     #[test]
     fn cli_with_empty_input_produces_empty_project() {
         let input = Cursor::new(b"");
         let mut output = Vec::new();
+        let root = Path::new(".");
+        let origin_base = Path::new(".");
 
-        run(input, &mut output).unwrap();
+        run(input, &mut output, root, origin_base).unwrap();
 
         assert_eq!(String::from_utf8(output).unwrap(), "# Project name\n");
     }
@@ -69,8 +74,10 @@ mod tests {
         // null-delimited input
         let input = Cursor::new(format!("{}\0", path).into_bytes());
         let mut output = Vec::new();
+        let root = Path::new(".");
+        let origin_base = Path::new(".");
 
-        run(input, &mut output).unwrap();
+        run(input, &mut output, root, origin_base).unwrap();
 
         let output_str = String::from_utf8(output).unwrap();
 
@@ -88,8 +95,10 @@ mod tests {
 
         let input = Cursor::new(b"a.rs\0b.rs\0");
         let mut output = Vec::new();
+        let root = Path::new(".");
+        let origin_base = Path::new(".");
 
-        run(input, &mut output).unwrap();
+        run(input, &mut output, root, origin_base).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
@@ -109,8 +118,10 @@ mod tests {
 
         let input = Cursor::new(b"test/./main.rs\0");
         let mut output = Vec::new();
+        let root = Path::new(".");
+        let origin_base = Path::new(".");
 
-        run(input, &mut output).unwrap();
+        run(input, &mut output, root, origin_base).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
@@ -118,5 +129,31 @@ mod tests {
 
         fs::remove_file("test/main.rs").unwrap();
         fs::remove_dir("test").unwrap();
+    }
+
+    #[test]
+    fn cli_reads_from_origin_but_outputs_relative_to_root() {
+        fs::create_dir_all("sandbox/src").unwrap();
+        fs::write("sandbox/src/main.rs", "fn main() {}").unwrap();
+
+        // stdin provides path relative to origin_base
+        let input = Cursor::new(b"main.rs\0");
+        let mut output = Vec::new();
+        let root = Path::new("project");
+        let origin_base = Path::new("sandbox/src");
+
+        run(input, &mut output, root, origin_base).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+
+        // Must contain file content → proves correct reading
+        assert!(output.contains("fn main() {}"));
+
+        // Must contain normalized path → proves normalization applied
+        assert!(output.contains("sandbox/src/main.rs"));
+
+        fs::remove_file("sandbox/src/main.rs").unwrap();
+        fs::remove_dir("sandbox/src").unwrap();
+        fs::remove_dir("sandbox").unwrap();
     }
 }
