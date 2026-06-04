@@ -34,9 +34,9 @@ pub fn run<R: Read, W: Write>(
     }
 
     // convert to expected renderer input
-    let refs: Vec<(&str, &[u8])> = owned
+    let refs: Vec<(&Path, &[u8])> = owned
         .iter()
-        .map(|(p, b)| (p.to_str().unwrap(), b.as_slice()))
+        .map(|(p, b)| (p.as_path(), b.as_slice()))
         .collect();
 
     let rendered = render("Project name", &refs)?;
@@ -74,7 +74,7 @@ mod tests {
 
         let output_str = String::from_utf8(output).unwrap();
 
-        assert!(output_str.contains("### test_main.rs"));
+        assert!(output_str.contains("### \"test_main.rs\""));
         assert!(output_str.contains("fn main() {}"));
 
         // cleanup
@@ -114,7 +114,7 @@ mod tests {
 
         let output = String::from_utf8(output).unwrap();
 
-        assert!(output.contains("### test/main.rs"));
+        assert!(output.contains("### \"test/main.rs\""));
 
         fs::remove_file("test/main.rs").unwrap();
         fs::remove_dir("test").unwrap();
