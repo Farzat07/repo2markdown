@@ -1,7 +1,21 @@
+use std::fmt;
+
 #[derive(Debug)]
 pub enum RenderError {
     BinaryFile(String),
 }
+
+impl fmt::Display for RenderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RenderError::BinaryFile(filename) => {
+                write!(f, "Binary file encountered: {}", filename)
+            }
+        }
+    }
+}
+
+impl std::error::Error for RenderError {}
 
 pub fn render(project_name: &str, files: &[(&str, &[u8])]) -> Result<String, RenderError> {
     let mut output = format!("# {}\n", project_name);
