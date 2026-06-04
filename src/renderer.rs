@@ -1,16 +1,23 @@
-pub fn render(project_name: &str, files: &[(&str, &str)]) -> String {
+#[derive(Debug)]
+pub enum RenderError {
+    BinaryFile(String),
+}
+
+pub fn render(project_name: &str, files: &[(&str, &[u8])]) -> Result<String, RenderError> {
     let mut output = format!("# {}\n", project_name);
     if !files.is_empty() {
         output.push_str("\n## Files\n");
     }
-    for (filename, content) in files {
+    for (filename, bytes) in files {
+        let content = std::str::from_utf8(bytes)
+            .map_err(|_| RenderError::BinaryFile(filename.to_string()))?;
         let outer_backticks = outer_backticks(content);
         output.push_str(&format!(
             "\n### {}\n{}\n{}\n{}\n",
             filename, outer_backticks, content, outer_backticks
         ));
     }
-    output
+    Ok(output)
 }
 
 fn outer_backticks(contents: &str) -> String {
@@ -32,22 +39,22 @@ fn outer_backticks(contents: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::render;
+    use super::{RenderError, render};
 
     #[test]
     fn empty_project_renders_only_title() {
         let output = render("Project name", &[]);
-        assert_eq!(output, "# Project name\n");
+        assert_eq!(output.unwrap(), "# Project name\n");
     }
 
     #[test]
     fn single_file_is_rendered() {
-        let files = vec![("main.rs", "fn main() {}")];
+        let files: Vec<(&str, &[u8])> = vec![("main.rs", b"fn main() {}")];
 
         let output = render("Project name", &files);
 
         assert_eq!(
-            output,
+            output.unwrap(),
             "# Project name\n\n\
             ## Files\n\n\
             ### main.rs\n\
@@ -59,12 +66,15 @@ mod tests {
 
     #[test]
     fn multiple_files_are_rendered_in_order() {
-        let files = vec![("main.rs", "fn main() {}"), ("lib.rs", "pub fn hello() {}")];
+        let files: Vec<(&str, &[u8])> = vec![
+            ("main.rs", b"fn main() {}"),
+            ("lib.rs", b"pub fn hello() {}"),
+        ];
 
         let output = render("Project name", &files);
 
         assert_eq!(
-            output,
+            output.unwrap(),
             "# Project name\n\n\
             ## Files\n\n\
             ### main.rs\n\
@@ -80,12 +90,13 @@ mod tests {
 
     #[test]
     fn file_with_backticks_is_handled_safely() {
-        let files = vec![("example.rs", "fn main() { println!(\"``` inside\"); }")];
+        let files: Vec<(&str, &[u8])> =
+            vec![("example.rs", b"fn main() { println!(\"``` inside\"); }")];
 
         let output = render("Project name", &files);
 
         assert_eq!(
-            output,
+            output.unwrap(),
             "# Project name\n\n\
             ## Files\n\n\
             ### example.rs\n\
@@ -93,5 +104,17 @@ mod tests {
             fn main() { println!(\"``` inside\"); }\n\
             ````\n"
         );
+    }
+
+    #[test]
+    fn binary_file_is_rejected() {
+        let files: Vec<(&str, &[u8])> = vec![("image.png", &[0x00, 0x01, 0x02, 0xc3])];
+
+        let result = render("Project name", &files);
+
+        assert!(matches!(
+                result,
+                Err(RenderError::BinaryFile(name)) if name == "image.png"
+        ));
     }
 }
