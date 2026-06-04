@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{
     env,
     path::{Component, Path, PathBuf},
@@ -6,10 +7,31 @@ use std::{
 #[derive(Debug)]
 pub enum NormalizeError {
     EmptyInput,
-    EscapesFilesystemRoot,
+    EscapesFilesystemRoot(PathBuf),
     FailedToGetCurDir,
-    InvalidMultiplePrefix,
+    InvalidMultiplePrefix(PathBuf),
 }
+
+impl fmt::Display for NormalizeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyInput => {
+                write!(f, "Encountered an empty filename")
+            }
+            Self::EscapesFilesystemRoot(path) => {
+                write!(f, "Path escapes filesystem root: {:?}", path)
+            }
+            Self::FailedToGetCurDir => {
+                write!(f, "Failed to get current directory")
+            }
+            Self::InvalidMultiplePrefix(path) => {
+                write!(f, "Path invalid multiple prefixes: {:?}", path)
+            }
+        }
+    }
+}
+
+impl std::error::Error for NormalizeError {}
 
 pub struct Normalizer {
     root: PathBuf,
@@ -86,12 +108,14 @@ fn normalize_components(path: &Path) -> Result<PathBuf, NormalizeError> {
     for component in iter {
         match component {
             Component::RootDir => unreachable!(),
-            Component::Prefix(_) => return Err(NormalizeError::InvalidMultiplePrefix),
+            Component::Prefix(_) => {
+                return Err(NormalizeError::InvalidMultiplePrefix(path.to_path_buf()));
+            }
             Component::CurDir => continue,
             Component::ParentDir => {
                 // It's an error if ParentDir causes us to go above the "root".
                 if normalized.as_os_str().len() == root {
-                    return Err(NormalizeError::EscapesFilesystemRoot);
+                    return Err(NormalizeError::EscapesFilesystemRoot(path.to_path_buf()));
                 } else {
                     normalized.pop();
                 }
@@ -219,7 +243,10 @@ mod tests {
         let origin_base = Path::new("outside");
         let normalizer = Normalizer::new_with_cwd(root, origin_base, fake_cwd).unwrap();
         let result = normalizer.normalize(Path::new("../../../main.rs"));
-        assert!(matches!(result, Err(NormalizeError::EscapesFilesystemRoot)));
+        assert!(matches!(
+            result,
+            Err(NormalizeError::EscapesFilesystemRoot(_))
+        ));
     }
 
     #[test]
