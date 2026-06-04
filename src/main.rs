@@ -48,9 +48,11 @@ pub fn run<R: Read, W: Write>(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::io::Cursor;
     use std::path::Path;
-    use std::{env, fs};
+
+    use tempfile::tempdir;
 
     use super::run;
 
@@ -65,27 +67,26 @@ mod tests {
 
     #[test]
     fn cli_with_empty_input_produces_empty_project() {
+        let temp_dir = tempdir().unwrap();
         let input = Cursor::new(b"");
         let mut output = Vec::new();
-        let root = Path::new(".");
-        let origin_base = Path::new(".");
+        let root = temp_dir.path();
+        let origin_base = temp_dir.path();
 
-        run(input, &mut output, root, origin_base).unwrap();
+        run(input, &mut output, &root, &origin_base).unwrap();
 
         assert_eq!(String::from_utf8(output).unwrap(), "# Project name\n");
     }
 
     #[test]
     fn cli_reads_single_file_from_stdin() {
-        // create a temporary file
-        let path = "test_main.rs";
-        fs::write(path, "fn main() {}").unwrap();
-
-        // null-delimited input
-        let input = Cursor::new(format!("{}\0", path).into_bytes());
+        let temp_dir = tempdir().unwrap();
+        let origin_base = temp_dir.path();
+        let input = Cursor::new(b"test_main.rs\0");
         let mut output = Vec::new();
-        let root = Path::new(".");
-        let origin_base = Path::new(".");
+        let root = temp_dir.path();
+
+        fs::write(origin_base.join("test_main.rs"), "fn main() {}").unwrap();
 
         run(input, &mut output, root, origin_base).unwrap();
 
@@ -93,20 +94,18 @@ mod tests {
 
         assert!(output_str.contains("### \"test_main.rs\""));
         assert!(output_str.contains("fn main() {}"));
-
-        // cleanup
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn cli_reads_multiple_files_in_order() {
-        fs::write("a.rs", "A").unwrap();
-        fs::write("b.rs", "B").unwrap();
-
+        let temp_dir = tempdir().unwrap();
+        let origin_base = temp_dir.path();
         let input = Cursor::new(b"a.rs\0b.rs\0");
         let mut output = Vec::new();
-        let root = Path::new(".");
-        let origin_base = Path::new(".");
+        let root = temp_dir.path();
+
+        fs::write(origin_base.join("a.rs"), "A").unwrap();
+        fs::write(origin_base.join("b.rs"), "B").unwrap();
 
         run(input, &mut output, root, origin_base).unwrap();
 
@@ -116,43 +115,39 @@ mod tests {
         let b_pos = output.find("b.rs").unwrap();
 
         assert!(a_pos < b_pos);
-
-        fs::remove_file("a.rs").unwrap();
-        fs::remove_file("b.rs").unwrap();
     }
 
     #[test]
     fn cli_normalizes_paths_before_rendering() {
-        fs::create_dir_all("test").unwrap();
-        fs::write("test/main.rs", "fn main() {}").unwrap();
-
+        let temp_dir = tempdir().unwrap();
+        let origin_base = temp_dir.path();
         let input = Cursor::new(b"test/./main.rs\0");
         let mut output = Vec::new();
-        let root = Path::new(".");
-        let origin_base = Path::new(".");
+        let root = temp_dir.path();
+
+        let write_dir = temp_dir.path().join("test");
+        fs::create_dir_all(&write_dir).unwrap();
+        fs::write(write_dir.join("main.rs"), "fn main() {}").unwrap();
 
         run(input, &mut output, root, origin_base).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
         assert!(output.contains("### \"test/main.rs\""));
-
-        fs::remove_file("test/main.rs").unwrap();
-        fs::remove_dir("test").unwrap();
     }
 
     #[test]
     fn cli_reads_from_origin_but_outputs_relative_to_root() {
-        fs::create_dir_all("sandbox/src").unwrap();
-        fs::write("sandbox/src/main.rs", "fn main() {}").unwrap();
-
-        // stdin provides path relative to origin_base
+        let temp_dir = tempdir().unwrap();
+        let origin_base = temp_dir.path().join("sandbox/src");
         let input = Cursor::new(b"main.rs\0");
         let mut output = Vec::new();
-        let root = Path::new("project");
-        let origin_base = Path::new("sandbox/src");
+        let root = temp_dir.path().join("project");
 
-        run(input, &mut output, root, origin_base).unwrap();
+        fs::create_dir_all(&origin_base).unwrap();
+        fs::write(origin_base.join("main.rs"), "fn main() {}").unwrap();
+
+        run(input, &mut output, &root, &origin_base).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
@@ -161,32 +156,24 @@ mod tests {
 
         // Must contain normalized path → proves normalization applied
         assert!(output.contains("sandbox/src/main.rs"));
-
-        fs::remove_file("sandbox/src/main.rs").unwrap();
-        fs::remove_dir("sandbox/src").unwrap();
-        fs::remove_dir("sandbox").unwrap();
     }
 
     #[test]
     fn cli_ignores_origin_when_input_path_is_absolute() {
-        let temp_dir = env::temp_dir();
-        let filepath = temp_dir.join("test_main.rs");
-        fs::create_dir_all(temp_dir).unwrap();
-        fs::write(&filepath, "fn main() {}").unwrap();
-
-        // stdin provides path relative to origin_base
+        let temp_dir1 = tempdir().unwrap();
+        let temp_dir2 = tempdir().unwrap();
+        let origin_base = temp_dir2.path();
+        let filepath = temp_dir1.path().join("test_main.rs");
         let input = Cursor::new(paths_to_null_sep_bytes(&[&filepath]));
         let mut output = Vec::new();
-        let root = Path::new("project");
-        let origin_base = Path::new("sandbox/src");
+        let root = temp_dir2.path();
+        fs::write(&filepath, "fn main() {}").unwrap();
 
-        run(input, &mut output, root, origin_base).unwrap();
+        run(input, &mut output, &root, &origin_base).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
         // Must contain file content → proves correct reading
         assert!(output.contains("fn main() {}"));
-
-        fs::remove_file(filepath).unwrap();
     }
 }
