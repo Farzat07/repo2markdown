@@ -1,6 +1,11 @@
-use std::io::{Read, Write};
+use std::{
+    ffi::OsStr,
+    io::{Read, Write},
+    os::unix::ffi::OsStrExt,
+    path::Path,
+};
 
-use repo2markdown::renderer::render;
+use repo2markdown::{normalizer::Normalizer, renderer::render};
 
 fn main() {
     println!("Hello, world!");
@@ -14,22 +19,24 @@ pub fn run<R: Read, W: Write>(
     input.read_to_end(&mut buf)?;
 
     let mut owned = Vec::new();
+    let normalizer = Normalizer::new(Path::new("."), Path::new("."))?;
 
     for segment in buf.split(|b| *b == 0) {
         if segment.is_empty() {
             continue;
         }
 
-        let path = std::str::from_utf8(segment)?;
-        let bytes = std::fs::read(path)?;
+        let path = Path::new(OsStr::from_bytes(segment));
+        let path = normalizer.normalize(path)?;
+        let bytes = std::fs::read(&path)?;
 
-        owned.push((path.to_string(), bytes));
+        owned.push((path, bytes));
     }
 
     // convert to expected renderer input
     let refs: Vec<(&str, &[u8])> = owned
         .iter()
-        .map(|(p, b)| (p.as_str(), b.as_slice()))
+        .map(|(p, b)| (p.to_str().unwrap(), b.as_slice()))
         .collect();
 
     let rendered = render("Project name", &refs)?;
@@ -40,7 +47,6 @@ pub fn run<R: Read, W: Write>(
 #[cfg(test)]
 mod tests {
     use super::run;
-    use std::env::temp_dir;
     use std::fs;
     use std::io::Cursor;
 
@@ -73,5 +79,44 @@ mod tests {
 
         // cleanup
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn cli_reads_multiple_files_in_order() {
+        fs::write("a.rs", "A").unwrap();
+        fs::write("b.rs", "B").unwrap();
+
+        let input = Cursor::new(b"a.rs\0b.rs\0");
+        let mut output = Vec::new();
+
+        run(input, &mut output).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+
+        let a_pos = output.find("a.rs").unwrap();
+        let b_pos = output.find("b.rs").unwrap();
+
+        assert!(a_pos < b_pos);
+
+        fs::remove_file("a.rs").unwrap();
+        fs::remove_file("b.rs").unwrap();
+    }
+
+    #[test]
+    fn cli_normalizes_paths_before_rendering() {
+        fs::create_dir_all("test").unwrap();
+        fs::write("test/main.rs", "fn main() {}").unwrap();
+
+        let input = Cursor::new(b"test/./main.rs\0");
+        let mut output = Vec::new();
+
+        run(input, &mut output).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+
+        assert!(output.contains("### test/main.rs"));
+
+        fs::remove_file("test/main.rs").unwrap();
+        fs::remove_dir("test").unwrap();
     }
 }
