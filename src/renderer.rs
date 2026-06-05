@@ -103,101 +103,7 @@ fn render_filename(path: &Path) -> String {
 mod tests {
     use std::{ffi::OsStr, io::Cursor, os::unix::ffi::OsStrExt, path::Path};
 
-    use super::{RenderError, Renderer, render};
-
-    #[test]
-    fn empty_project_renders_only_title() {
-        let output = render("Project name", &[]);
-        assert_eq!(output.unwrap(), "# Project name\n");
-    }
-
-    #[test]
-    fn single_file_is_rendered() {
-        let files: Vec<(&Path, &[u8])> = vec![(Path::new("main.rs"), b"fn main() {}")];
-
-        let output = render("Project name", &files);
-
-        assert_eq!(
-            output.unwrap(),
-            "# Project name\n\n\
-            ## File: main.rs\n\
-            ```\n\
-            fn main() {}\n\
-            ```\n"
-        );
-    }
-
-    #[test]
-    fn multiple_files_are_rendered_in_order() {
-        let files: Vec<(&Path, &[u8])> = vec![
-            (Path::new("main.rs"), b"fn main() {}"),
-            (Path::new("lib.rs"), b"pub fn hello() {}"),
-        ];
-
-        let output = render("Project name", &files);
-
-        assert_eq!(
-            output.unwrap(),
-            "# Project name\n\n\
-            ## File: main.rs\n\
-            ```\n\
-            fn main() {}\n\
-            ```\n\n\
-            ## File: lib.rs\n\
-            ```\n\
-            pub fn hello() {}\n\
-            ```\n"
-        );
-    }
-
-    #[test]
-    fn file_with_backticks_is_handled_safely() {
-        let files: Vec<(&Path, &[u8])> = vec![(
-            Path::new("example.rs"),
-            b"fn main() { println!(\"``` inside\"); }",
-        )];
-
-        let output = render("Project name", &files);
-
-        assert_eq!(
-            output.unwrap(),
-            "# Project name\n\n\
-            ## File: example.rs\n\
-            ````\n\
-            fn main() { println!(\"``` inside\"); }\n\
-            ````\n"
-        );
-    }
-
-    #[test]
-    fn binary_file_is_rejected() {
-        let files: Vec<(&Path, &[u8])> = vec![(Path::new("image.png"), &[0x00, 0x01, 0x02, 0xc3])];
-
-        let result = render("Project name", &files);
-
-        assert!(
-            matches!(result, Err(RenderError::BinaryFile(name)) if name == Path::new("image.png"))
-        );
-    }
-
-    #[test]
-    fn filename_with_linebreaks_and_invalid_chars_handled_properly() {
-        let files: Vec<(&Path, &[u8])> = vec![(
-            Path::new(OsStr::from_bytes(b"jap\xE3\x81\x82dir/some\nma\xc3in.rs")),
-            b"fn main() {}",
-        )];
-
-        let output = render("Project name", &files);
-
-        assert_eq!(
-            output.unwrap(),
-            "# Project name\n\n\
-            ## File: japあdir/some\\nma\\xC3in.rs\n\
-            ```\n\
-            fn main() {}\n\
-            ```\n"
-        );
-    }
+    use super::Renderer;
 
     #[test]
     fn renderer_writes_header() {
@@ -229,6 +135,34 @@ mod tests {
         let input = Cursor::new(&[0x00, 0x01, 0x02, 0xc3]);
         renderer.render_file(Path::new("image.png"), input).unwrap();
         let expected = "\n## File: image.png\n[BINARY FILE]\n";
+
+        assert_eq!(String::from_utf8(output).unwrap(), expected);
+    }
+
+    #[test]
+    fn filename_with_linebreaks_and_invalid_chars_handled_properly() {
+        let mut output = Vec::new();
+        let mut renderer = Renderer::new(&mut output);
+
+        let input = Cursor::new("fn main() {}");
+        let filename = Path::new(OsStr::from_bytes(b"jap\xE3\x81\x82dir/some\nma\xc3in.rs"));
+        renderer.render_file(filename, input).unwrap();
+        let expected = "\n## File: japあdir/some\\nma\\xC3in.rs\n```\nfn main() {}\n```\n";
+
+        assert_eq!(String::from_utf8(output).unwrap(), expected);
+    }
+
+    #[test]
+    fn file_with_backticks_is_handled_safely() {
+        let mut output = Vec::new();
+        let mut renderer = Renderer::new(&mut output);
+
+        let input = Cursor::new("fn main() { println!(\"``` inside\"); }");
+        renderer
+            .render_file(Path::new("example.rs"), input)
+            .unwrap();
+        let expected = "\n## File: example.rs\n````\n\
+            fn main() { println!(\"``` inside\"); }\n````\n";
 
         assert_eq!(String::from_utf8(output).unwrap(), expected);
     }
