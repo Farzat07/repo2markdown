@@ -11,11 +11,14 @@ fn main() {
     println!("Hello, world!");
 }
 
+const DEFAULT_PROJECT_NAME: &str = "Project Outline";
+
 pub fn run<R: Read, W: Write>(
     mut input: R,
     mut output: W,
     root: &Path,
     origin_base: &Path,
+    project_name: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = Vec::new();
     input.read_to_end(&mut buf)?;
@@ -41,27 +44,33 @@ pub fn run<R: Read, W: Write>(
         .map(|(p, b)| (p.as_path(), b.as_slice()))
         .collect();
 
-    let project_name = if let Some(os_str_name) = root.file_name()
-        && let Some(name) = os_str_name.to_str()
-    {
-        name
-    } else {
-        "Project Outline"
-    };
+    let project_name = project_name.unwrap_or_else(|| derive_project_name(root));
     let rendered = render(project_name, &refs)?;
     output.write_all(rendered.as_bytes())?;
     Ok(())
 }
 
+fn derive_project_name(root: &Path) -> &str {
+    if let Some(os_str_name) = root.file_name()
+        && let Some(name) = os_str_name.to_str()
+    {
+        name
+    } else {
+        DEFAULT_PROJECT_NAME
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsStr;
     use std::fs;
     use std::io::Cursor;
+    use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
 
     use tempfile::tempdir;
 
-    use super::run;
+    use super::{DEFAULT_PROJECT_NAME, derive_project_name, run};
 
     fn paths_to_null_sep_bytes(file_paths: &[&Path]) -> Vec<u8> {
         let mut output = Vec::new();
@@ -73,14 +82,14 @@ mod tests {
     }
 
     #[test]
-    fn cli_with_empty_input_produces_empty_project() {
+    fn cli_with_empty_input_produces_empty_project_with_specified_project_name() {
         let temp_dir = tempdir().unwrap();
         let input = Cursor::new(b"");
         let mut output = Vec::new();
-        let root = temp_dir.path().join("Project name");
+        let root = temp_dir.path();
         let origin_base = temp_dir.path();
 
-        run(input, &mut output, &root, origin_base).unwrap();
+        run(input, &mut output, root, origin_base, Some("Project name")).unwrap();
 
         assert_eq!(String::from_utf8(output).unwrap(), "# Project name\n");
     }
@@ -95,7 +104,7 @@ mod tests {
 
         fs::write(origin_base.join("test_main.rs"), "fn main() {}").unwrap();
 
-        run(input, &mut output, root, origin_base).unwrap();
+        run(input, &mut output, root, origin_base, None).unwrap();
 
         let output_str = String::from_utf8(output).unwrap();
 
@@ -114,7 +123,7 @@ mod tests {
         fs::write(origin_base.join("a.rs"), "A").unwrap();
         fs::write(origin_base.join("b.rs"), "B").unwrap();
 
-        run(input, &mut output, root, origin_base).unwrap();
+        run(input, &mut output, root, origin_base, None).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
@@ -136,7 +145,7 @@ mod tests {
         fs::create_dir_all(&write_dir).unwrap();
         fs::write(write_dir.join("main.rs"), "fn main() {}").unwrap();
 
-        run(input, &mut output, root, origin_base).unwrap();
+        run(input, &mut output, root, origin_base, None).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
@@ -154,7 +163,7 @@ mod tests {
         fs::create_dir_all(&origin_base).unwrap();
         fs::write(origin_base.join("main.rs"), "fn main() {}").unwrap();
 
-        run(input, &mut output, &root, &origin_base).unwrap();
+        run(input, &mut output, &root, &origin_base, None).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
@@ -176,7 +185,7 @@ mod tests {
         let root = temp_dir2.path();
         fs::write(&filepath, "fn main() {}").unwrap();
 
-        run(input, &mut output, root, origin_base).unwrap();
+        run(input, &mut output, root, origin_base, None).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
@@ -192,10 +201,27 @@ mod tests {
         let mut output = Vec::new();
         let root = temp_dir.path().join("repo2markdown");
 
-        run(input, &mut output, &root, origin_base).unwrap();
+        run(input, &mut output, &root, origin_base, None).unwrap();
 
         let output_str = String::from_utf8(output).unwrap();
 
         assert_eq!(output_str, "# repo2markdown\n");
+    }
+
+    #[test]
+    fn project_name_fallsback_to_default_if_root_is_filesystem_root() {
+        assert_eq!(derive_project_name(Path::new("/")), DEFAULT_PROJECT_NAME);
+    }
+
+    #[test]
+    fn project_name_fallsback_if_root_ending_is_not_utf8() {
+        let root = Path::new(OsStr::from_bytes(b"/root/fd\xC3"));
+        assert_eq!(derive_project_name(root), DEFAULT_PROJECT_NAME);
+    }
+
+    #[test]
+    fn deriving_project_name_from_root_ignores_trailing_slash() {
+        let root = Path::new("/root/repo2markdown/");
+        assert_eq!(derive_project_name(root), "repo2markdown");
     }
 }
