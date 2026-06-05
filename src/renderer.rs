@@ -23,12 +23,13 @@ impl std::error::Error for RenderError {}
 pub fn render(project_name: &str, files: &[(&Path, &[u8])]) -> Result<String, RenderError> {
     let mut output = format!("# {}\n", project_name);
     for (filename, bytes) in files {
+        let printable_filename = render_filename(filename);
         let content = std::str::from_utf8(bytes)
             .map_err(|_| RenderError::BinaryFile(filename.to_path_buf()))?;
         let outer_backticks = outer_backticks(content);
         output.push_str(&format!(
-            "\n## File: {:?}\n{}\n{}\n{}\n",
-            filename, outer_backticks, content, outer_backticks
+            "\n## File: {}\n{}\n{}\n{}\n",
+            printable_filename, outer_backticks, content, outer_backticks
         ));
     }
     Ok(output)
@@ -49,6 +50,14 @@ fn outer_backticks(contents: &str) -> String {
     }
     let fence_len = std::cmp::max(3, max_ticks + 1);
     "`".repeat(fence_len)
+}
+
+fn render_filename(path: &Path) -> String {
+    let s = format!("{:?}", path);
+    s.strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(&s)
+        .to_string()
 }
 
 #[cfg(test)]
@@ -72,7 +81,7 @@ mod tests {
         assert_eq!(
             output.unwrap(),
             "# Project name\n\n\
-            ## File: \"main.rs\"\n\
+            ## File: main.rs\n\
             ```\n\
             fn main() {}\n\
             ```\n"
@@ -91,11 +100,11 @@ mod tests {
         assert_eq!(
             output.unwrap(),
             "# Project name\n\n\
-            ## File: \"main.rs\"\n\
+            ## File: main.rs\n\
             ```\n\
             fn main() {}\n\
             ```\n\n\
-            ## File: \"lib.rs\"\n\
+            ## File: lib.rs\n\
             ```\n\
             pub fn hello() {}\n\
             ```\n"
@@ -114,7 +123,7 @@ mod tests {
         assert_eq!(
             output.unwrap(),
             "# Project name\n\n\
-            ## File: \"example.rs\"\n\
+            ## File: example.rs\n\
             ````\n\
             fn main() { println!(\"``` inside\"); }\n\
             ````\n"
@@ -135,7 +144,7 @@ mod tests {
     #[test]
     fn filename_with_linebreaks_and_invalid_chars_handled_properly() {
         let files: Vec<(&Path, &[u8])> = vec![(
-            Path::new(OsStr::from_bytes(b"some\nma\xc3in.rs")),
+            Path::new(OsStr::from_bytes(b"jap\xE3\x81\x82dir/some\nma\xc3in.rs")),
             b"fn main() {}",
         )];
 
@@ -144,7 +153,7 @@ mod tests {
         assert_eq!(
             output.unwrap(),
             "# Project name\n\n\
-            ## File: \"some\\nma\\xC3in.rs\"\n\
+            ## File: japあdir/some\\nma\\xC3in.rs\n\
             ```\n\
             fn main() {}\n\
             ```\n"
