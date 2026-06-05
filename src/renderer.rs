@@ -41,7 +41,7 @@ impl<W: Write> Renderer<W> {
         }
     }
 
-    pub fn render_file<R: Read>(&mut self, filename: &Path, mut reader: R) -> std::io::Result<()> {
+    fn render_file<R: Read>(&mut self, filename: &Path, mut reader: R) -> std::io::Result<()> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
         let contents = if let Ok(utf8string) = std::str::from_utf8(&bytes) {

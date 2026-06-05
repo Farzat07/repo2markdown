@@ -1,7 +1,6 @@
 use std::{
     env,
     ffi::OsStr,
-    fs::File,
     io::{self, Read, Write},
     os::unix::ffi::OsStrExt,
     path::Path,
@@ -69,8 +68,7 @@ pub fn run<R: Read, W: Write>(
 
         let path = Path::new(OsStr::from_bytes(segment));
         let normalized_path = normalizer.normalize(path)?;
-        let file = File::open(normalized_path.absolute)?;
-        renderer.render_file(&normalized_path.relative, file)?;
+        renderer.render_path(&normalized_path)?;
     }
     Ok(())
 }
