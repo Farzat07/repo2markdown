@@ -48,6 +48,7 @@ impl<W: Write> Renderer<W> {
         let contents = if let Ok(utf8string) = std::str::from_utf8(&bytes) {
             utf8string
         } else {
+            self.warn_about_binary_file(filename);
             return self.render_binary_file(filename);
         };
         let name = render_filename(filename);
@@ -79,6 +80,13 @@ impl<W: Write> Renderer<W> {
             render_filename(filename),
             human_readable_size(filesize),
             human_readable_size(self.max_file_size),
+        )
+    }
+
+    fn warn_about_binary_file(&self, filename: &Path) {
+        eprintln!(
+            "Warning: skipping binary file: {}",
+            render_filename(filename),
         )
     }
 }
