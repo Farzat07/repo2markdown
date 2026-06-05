@@ -35,15 +35,27 @@ impl<W: Write> Renderer<W> {
     }
 
     pub fn render_file<R: Read>(&mut self, filename: &Path, mut reader: R) -> std::io::Result<()> {
-        let mut buf = String::new();
-        reader.read_to_string(&mut buf)?;
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes)?;
+        let contents = if let Ok(utf8string) = std::str::from_utf8(&bytes) {
+            utf8string
+        } else {
+            return self.render_binary_file(filename);
+        };
         let name = render_filename(filename);
-        let fence = outer_backticks(&buf);
+        let fence = outer_backticks(contents);
         writeln!(self.output)?;
         writeln!(self.output, "## File: {}", name)?;
         writeln!(self.output, "{}", fence)?;
-        writeln!(self.output, "{}", buf)?;
+        writeln!(self.output, "{}", contents)?;
         writeln!(self.output, "{}", fence)
+    }
+
+    fn render_binary_file(&mut self, filename: &Path) -> std::io::Result<()> {
+        let name = render_filename(filename);
+        writeln!(self.output)?;
+        writeln!(self.output, "## File: {}", name)?;
+        writeln!(self.output, "[BINARY FILE]")
     }
 }
 
@@ -205,6 +217,18 @@ mod tests {
         let input = Cursor::new("fn main() {}");
         renderer.render_file(Path::new("main.rs"), input).unwrap();
         let expected = "\n## File: main.rs\n```\nfn main() {}\n```\n";
+
+        assert_eq!(String::from_utf8(output).unwrap(), expected);
+    }
+
+    #[test]
+    fn renderer_places_a_placeholder_for_binary_files_by_default() {
+        let mut output = Vec::new();
+        let mut renderer = Renderer::new(&mut output);
+
+        let input = Cursor::new(&[0x00, 0x01, 0x02, 0xc3]);
+        renderer.render_file(Path::new("image.png"), input).unwrap();
+        let expected = "\n## File: image.png\n[BINARY FILE]\n";
 
         assert_eq!(String::from_utf8(output).unwrap(), expected);
     }
