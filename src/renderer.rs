@@ -1,26 +1,9 @@
 use std::{
-    fmt,
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 #[derive(Debug)]
-pub enum RenderError {
-    BinaryFile(PathBuf),
-}
-
-impl fmt::Display for RenderError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RenderError::BinaryFile(filename) => {
-                write!(f, "Binary file encountered: {:?}", filename)
-            }
-        }
-    }
-}
-
-impl std::error::Error for RenderError {}
-
 pub struct Renderer<W: Write> {
     output: W,
 }
@@ -57,21 +40,6 @@ impl<W: Write> Renderer<W> {
         writeln!(self.output, "## File: {}", name)?;
         writeln!(self.output, "[BINARY FILE]")
     }
-}
-
-pub fn render(project_name: &str, files: &[(&Path, &[u8])]) -> Result<String, RenderError> {
-    let mut output = format!("# {}\n", project_name);
-    for (filename, bytes) in files {
-        let printable_filename = render_filename(filename);
-        let content = std::str::from_utf8(bytes)
-            .map_err(|_| RenderError::BinaryFile(filename.to_path_buf()))?;
-        let outer_backticks = outer_backticks(content);
-        output.push_str(&format!(
-            "\n## File: {}\n{}\n{}\n{}\n",
-            printable_filename, outer_backticks, content, outer_backticks
-        ));
-    }
-    Ok(output)
 }
 
 fn outer_backticks(contents: &str) -> String {
