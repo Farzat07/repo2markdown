@@ -1,20 +1,44 @@
 use std::{
+    fs::File,
     io::{Read, Write},
     path::Path,
 };
 
+use crate::normalizer::NormalizedPath;
+
+const DEFAULT_MAX_FILE_SIZE: u64 = 1_000_000;
+
 #[derive(Debug)]
 pub struct Renderer<W: Write> {
     output: W,
+    max_file_size: u64,
 }
 
 impl<W: Write> Renderer<W> {
     pub fn new(output: W) -> Self {
-        Self { output }
+        Self {
+            output,
+            max_file_size: DEFAULT_MAX_FILE_SIZE,
+        }
+    }
+
+    pub fn with_max_file_size(mut self, max_file_size: u64) -> Self {
+        self.max_file_size = max_file_size;
+        self
     }
 
     pub fn render_header(&mut self, project_name: &str) -> std::io::Result<()> {
         writeln!(self.output, "# {}", project_name)
+    }
+
+    pub fn render_path(&mut self, normalized_path: &NormalizedPath) -> std::io::Result<()> {
+        let metadata = std::fs::metadata(&normalized_path.absolute)?;
+        if metadata.len() > self.max_file_size {
+            self.render_large_file(&normalized_path.relative)
+        } else {
+            let file = File::open(&normalized_path.absolute)?;
+            self.render_file(&normalized_path.relative, file)
+        }
     }
 
     pub fn render_file<R: Read>(&mut self, filename: &Path, mut reader: R) -> std::io::Result<()> {
@@ -32,6 +56,13 @@ impl<W: Write> Renderer<W> {
         writeln!(self.output, "{}", fence)?;
         writeln!(self.output, "{}", contents)?;
         writeln!(self.output, "{}", fence)
+    }
+
+    fn render_large_file(&mut self, filename: &Path) -> std::io::Result<()> {
+        let name = render_filename(filename);
+        writeln!(self.output)?;
+        writeln!(self.output, "## File: {}", name)?;
+        writeln!(self.output, "[FILE TOO LARGE]")
     }
 
     fn render_binary_file(&mut self, filename: &Path) -> std::io::Result<()> {
@@ -69,7 +100,16 @@ fn render_filename(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::OsStr, io::Cursor, os::unix::ffi::OsStrExt, path::Path};
+    use std::{
+        ffi::OsStr,
+        io::Cursor,
+        os::unix::ffi::OsStrExt,
+        path::{Path, PathBuf},
+    };
+
+    use tempfile::tempdir;
+
+    use crate::normalizer::NormalizedPath;
 
     use super::Renderer;
 
@@ -131,6 +171,27 @@ mod tests {
             .unwrap();
         let expected = "\n## File: example.rs\n````\n\
             fn main() { println!(\"``` inside\"); }\n````\n";
+
+        assert_eq!(String::from_utf8(output).unwrap(), expected);
+    }
+
+    #[test]
+    fn renderer_places_placeholder_for_large_files_by_default() {
+        let mut output = Vec::new();
+        let mut renderer = Renderer::new(&mut output).with_max_file_size(5); // smaller than file
+
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("big.txt");
+
+        let content = "A".repeat(10); // 10 bytes -> bigger than the limit
+        std::fs::write(&file_path, &content).unwrap();
+        let normalized_path = NormalizedPath {
+            relative: PathBuf::from("big.txt"),
+            absolute: file_path,
+        };
+
+        renderer.render_path(&normalized_path).unwrap();
+        let expected = "\n## File: big.txt\n[FILE TOO LARGE]\n";
 
         assert_eq!(String::from_utf8(output).unwrap(), expected);
     }
