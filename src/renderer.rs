@@ -1,5 +1,6 @@
 use std::{
     fmt,
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -19,6 +20,20 @@ impl fmt::Display for RenderError {
 }
 
 impl std::error::Error for RenderError {}
+
+pub struct Renderer<W: Write> {
+    output: W,
+}
+
+impl<W: Write> Renderer<W> {
+    pub fn new(output: W) -> Self {
+        Self { output }
+    }
+
+    pub fn render_header(&mut self, project_name: &str) -> std::io::Result<()> {
+        writeln!(self.output, "# {}", project_name)
+    }
+}
 
 pub fn render(project_name: &str, files: &[(&Path, &[u8])]) -> Result<String, RenderError> {
     let mut output = format!("# {}\n", project_name);
@@ -64,7 +79,7 @@ fn render_filename(path: &Path) -> String {
 mod tests {
     use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
 
-    use super::{RenderError, render};
+    use super::{RenderError, Renderer, render};
 
     #[test]
     fn empty_project_renders_only_title() {
@@ -158,5 +173,15 @@ mod tests {
             fn main() {}\n\
             ```\n"
         );
+    }
+
+    #[test]
+    fn renderer_writes_header() {
+        let mut output = Vec::new();
+        let mut renderer = Renderer::new(&mut output);
+
+        renderer.render_header("Project name").unwrap();
+
+        assert_eq!(String::from_utf8(output).unwrap(), "# Project name\n");
     }
 }
