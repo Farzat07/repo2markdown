@@ -1,12 +1,13 @@
 use std::{
     env,
     ffi::OsStr,
+    fs::File,
     io::{self, Read, Write},
     os::unix::ffi::OsStrExt,
     path::Path,
 };
 
-use repo2markdown::{normalizer::Normalizer, renderer::render};
+use repo2markdown::{normalizer::Normalizer, renderer::Renderer};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
@@ -47,7 +48,7 @@ const DEFAULT_PROJECT_NAME: &str = "Project Outline";
 
 pub fn run<R: Read, W: Write>(
     mut input: R,
-    mut output: W,
+    output: W,
     root: &Path,
     origin_base: &Path,
     project_name: Option<&str>,
@@ -55,8 +56,11 @@ pub fn run<R: Read, W: Write>(
     let mut buf = Vec::new();
     input.read_to_end(&mut buf)?;
 
-    let mut owned = Vec::new();
     let normalizer = Normalizer::new(root, origin_base)?;
+
+    let mut renderer = Renderer::new(output);
+    let project_name = project_name.unwrap_or_else(|| derive_project_name(root));
+    renderer.render_header(project_name)?;
 
     for segment in buf.split(|b| *b == 0) {
         if segment.is_empty() {
@@ -65,20 +69,9 @@ pub fn run<R: Read, W: Write>(
 
         let path = Path::new(OsStr::from_bytes(segment));
         let normalized_path = normalizer.normalize(path)?;
-        let bytes = std::fs::read(normalized_path.absolute)?;
-
-        owned.push((normalized_path.relative, bytes));
+        let file = File::open(normalized_path.absolute)?;
+        renderer.render_file(&normalized_path.relative, file)?;
     }
-
-    // convert to expected renderer input
-    let refs: Vec<(&Path, &[u8])> = owned
-        .iter()
-        .map(|(p, b)| (p.as_path(), b.as_slice()))
-        .collect();
-
-    let project_name = project_name.unwrap_or_else(|| derive_project_name(root));
-    let rendered = render(project_name, &refs)?;
-    output.write_all(rendered.as_bytes())?;
     Ok(())
 }
 
