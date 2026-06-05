@@ -140,7 +140,7 @@ mod tests {
 
         let output_str = String::from_utf8(output).unwrap();
 
-        assert!(output_str.contains("### \"test_main.rs\""));
+        assert!(output_str.contains("## File: \"test_main.rs\""));
         assert!(output_str.contains("fn main() {}"));
     }
 
@@ -181,7 +181,7 @@ mod tests {
 
         let output = String::from_utf8(output).unwrap();
 
-        assert!(output.contains("### \"test/main.rs\""));
+        assert!(output.contains("## File: \"test/main.rs\""));
     }
 
     #[test]

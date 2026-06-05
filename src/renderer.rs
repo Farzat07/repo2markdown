@@ -22,15 +22,12 @@ impl std::error::Error for RenderError {}
 
 pub fn render(project_name: &str, files: &[(&Path, &[u8])]) -> Result<String, RenderError> {
     let mut output = format!("# {}\n", project_name);
-    if !files.is_empty() {
-        output.push_str("\n## Files\n");
-    }
     for (filename, bytes) in files {
         let content = std::str::from_utf8(bytes)
             .map_err(|_| RenderError::BinaryFile(filename.to_path_buf()))?;
         let outer_backticks = outer_backticks(content);
         output.push_str(&format!(
-            "\n### {:?}\n{}\n{}\n{}\n",
+            "\n## File: {:?}\n{}\n{}\n{}\n",
             filename, outer_backticks, content, outer_backticks
         ));
     }
@@ -75,8 +72,7 @@ mod tests {
         assert_eq!(
             output.unwrap(),
             "# Project name\n\n\
-            ## Files\n\n\
-            ### \"main.rs\"\n\
+            ## File: \"main.rs\"\n\
             ```\n\
             fn main() {}\n\
             ```\n"
@@ -95,12 +91,11 @@ mod tests {
         assert_eq!(
             output.unwrap(),
             "# Project name\n\n\
-            ## Files\n\n\
-            ### \"main.rs\"\n\
+            ## File: \"main.rs\"\n\
             ```\n\
             fn main() {}\n\
             ```\n\n\
-            ### \"lib.rs\"\n\
+            ## File: \"lib.rs\"\n\
             ```\n\
             pub fn hello() {}\n\
             ```\n"
@@ -119,8 +114,7 @@ mod tests {
         assert_eq!(
             output.unwrap(),
             "# Project name\n\n\
-            ## Files\n\n\
-            ### \"example.rs\"\n\
+            ## File: \"example.rs\"\n\
             ````\n\
             fn main() { println!(\"``` inside\"); }\n\
             ````\n"
@@ -150,8 +144,7 @@ mod tests {
         assert_eq!(
             output.unwrap(),
             "# Project name\n\n\
-            ## Files\n\n\
-            ### \"some\\nma\\xC3in.rs\"\n\
+            ## File: \"some\\nma\\xC3in.rs\"\n\
             ```\n\
             fn main() {}\n\
             ```\n"
