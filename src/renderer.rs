@@ -34,6 +34,7 @@ impl<W: Write> Renderer<W> {
     pub fn render_path(&mut self, normalized_path: &NormalizedPath) -> std::io::Result<()> {
         let metadata = std::fs::metadata(&normalized_path.absolute)?;
         if metadata.len() > self.max_file_size {
+            self.warn_about_filesize(&normalized_path.relative, metadata.len());
             self.render_large_file(&normalized_path.relative)
         } else {
             let file = File::open(&normalized_path.absolute)?;
@@ -71,6 +72,15 @@ impl<W: Write> Renderer<W> {
         writeln!(self.output, "## File: {}", name)?;
         writeln!(self.output, "[BINARY FILE]")
     }
+
+    fn warn_about_filesize(&self, filename: &Path, filesize: u64) {
+        eprintln!(
+            "Warning: skipping large file: {} ({} > limit {})",
+            render_filename(filename),
+            human_readable_size(filesize),
+            human_readable_size(self.max_file_size),
+        )
+    }
 }
 
 fn outer_backticks(contents: &str) -> String {
@@ -98,6 +108,24 @@ fn render_filename(path: &Path) -> String {
         .to_string()
 }
 
+fn human_readable_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+
+    let mut size = bytes as f64;
+    let mut unit = 0;
+
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+
+    if unit == 0 {
+        format!("{} {}", bytes, UNITS[unit])
+    } else {
+        format!("{:.1} {}", size, UNITS[unit])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -111,7 +139,7 @@ mod tests {
 
     use crate::normalizer::NormalizedPath;
 
-    use super::Renderer;
+    use super::{Renderer, human_readable_size};
 
     #[test]
     fn renderer_writes_header() {
@@ -194,5 +222,13 @@ mod tests {
         let expected = "\n## File: big.txt\n[FILE TOO LARGE]\n";
 
         assert_eq!(String::from_utf8(output).unwrap(), expected);
+    }
+
+    #[test]
+    fn format_readable_filesizes() {
+        assert_eq!(human_readable_size(10), "10 B");
+        assert_eq!(human_readable_size(1500), "1.5 KiB");
+        assert_eq!(human_readable_size(1_048_576), "1.0 MiB");
+        assert_eq!(human_readable_size(5_242_880), "5.0 MiB");
     }
 }
