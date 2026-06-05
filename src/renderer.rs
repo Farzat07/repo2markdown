@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -32,6 +32,18 @@ impl<W: Write> Renderer<W> {
 
     pub fn render_header(&mut self, project_name: &str) -> std::io::Result<()> {
         writeln!(self.output, "# {}", project_name)
+    }
+
+    pub fn render_file<R: Read>(&mut self, filename: &Path, mut reader: R) -> std::io::Result<()> {
+        let mut buf = String::new();
+        reader.read_to_string(&mut buf)?;
+        let name = render_filename(filename);
+        let fence = outer_backticks(&buf);
+        writeln!(self.output)?;
+        writeln!(self.output, "## File: {}", name)?;
+        writeln!(self.output, "{}", fence)?;
+        writeln!(self.output, "{}", buf)?;
+        writeln!(self.output, "{}", fence)
     }
 }
 
@@ -77,7 +89,7 @@ fn render_filename(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
+    use std::{ffi::OsStr, io::Cursor, os::unix::ffi::OsStrExt, path::Path};
 
     use super::{RenderError, Renderer, render};
 
@@ -183,5 +195,17 @@ mod tests {
         renderer.render_header("Project name").unwrap();
 
         assert_eq!(String::from_utf8(output).unwrap(), "# Project name\n");
+    }
+
+    #[test]
+    fn renderer_renders_single_file() {
+        let mut output = Vec::new();
+        let mut renderer = Renderer::new(&mut output);
+
+        let input = Cursor::new("fn main() {}");
+        renderer.render_file(Path::new("main.rs"), input).unwrap();
+        let expected = "\n## File: main.rs\n```\nfn main() {}\n```\n";
+
+        assert_eq!(String::from_utf8(output).unwrap(), expected);
     }
 }
