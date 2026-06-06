@@ -6,7 +6,9 @@ use std::{
     path::Path,
 };
 
-use crate::{logger::Logger, normalizer::Normalizer, renderer::Renderer};
+use crate::{
+    logger::Logger, normalizer::Normalizer, renderer::Renderer, util::path_display::display_path,
+};
 
 const DEFAULT_PROJECT_NAME: &str = "Project Outline";
 
@@ -37,8 +39,8 @@ pub fn run<R: Read, W: Write>(
         let normalized_path = normalizer.normalize(path)?;
         if !seen_paths.insert(normalized_path.relative.clone()) {
             logger.warn(format!(
-                "Duplicate file detected: {:?}",
-                normalized_path.relative
+                "Warning: skipping duplicate file: {}",
+                display_path(&normalized_path.relative)
             ));
             continue;
         }
