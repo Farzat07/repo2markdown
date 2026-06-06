@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use crate::normalizer::NormalizedPath;
+use crate::{normalizer::NormalizedPath, util::path_display::display_path};
 
 const DEFAULT_MAX_FILE_SIZE: u64 = 1_000_000;
 
@@ -51,7 +51,7 @@ impl<W: Write> Renderer<W> {
             self.warn_about_binary_file(filename);
             return self.render_binary_file(filename);
         };
-        let name = render_filename(filename);
+        let name = display_path(filename);
         let fence = outer_backticks(contents);
         writeln!(self.output)?;
         writeln!(self.output, "## File: {}", name)?;
@@ -61,14 +61,14 @@ impl<W: Write> Renderer<W> {
     }
 
     fn render_large_file(&mut self, filename: &Path) -> std::io::Result<()> {
-        let name = render_filename(filename);
+        let name = display_path(filename);
         writeln!(self.output)?;
         writeln!(self.output, "## File: {}", name)?;
         writeln!(self.output, "[FILE TOO LARGE]")
     }
 
     fn render_binary_file(&mut self, filename: &Path) -> std::io::Result<()> {
-        let name = render_filename(filename);
+        let name = display_path(filename);
         writeln!(self.output)?;
         writeln!(self.output, "## File: {}", name)?;
         writeln!(self.output, "[BINARY FILE]")
@@ -77,17 +77,14 @@ impl<W: Write> Renderer<W> {
     fn warn_about_filesize(&self, filename: &Path, filesize: u64) {
         eprintln!(
             "Warning: skipping large file: {} ({} > limit {})",
-            render_filename(filename),
+            display_path(filename),
             human_readable_size(filesize),
             human_readable_size(self.max_file_size),
         )
     }
 
     fn warn_about_binary_file(&self, filename: &Path) {
-        eprintln!(
-            "Warning: skipping binary file: {}",
-            render_filename(filename),
-        )
+        eprintln!("Warning: skipping binary file: {}", display_path(filename))
     }
 }
 
@@ -106,14 +103,6 @@ fn outer_backticks(contents: &str) -> String {
     }
     let fence_len = std::cmp::max(3, max_ticks + 1);
     "`".repeat(fence_len)
-}
-
-fn render_filename(path: &Path) -> String {
-    let s = format!("{:?}", path);
-    s.strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .unwrap_or(&s)
-        .to_string()
 }
 
 fn human_readable_size(bytes: u64) -> String {
