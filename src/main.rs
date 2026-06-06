@@ -3,7 +3,7 @@ use std::{
     ffi::OsStr,
     io::{self, Read, Write},
     os::unix::ffi::OsStrExt,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use repo2markdown::{
@@ -74,6 +74,7 @@ pub fn run<R: Read, W: Write>(
     let project_name = project_name.unwrap_or_else(|| derive_project_name(root));
     renderer.render_header(project_name)?;
 
+    let mut last_rendered_path = PathBuf::from("");
     for segment in buf.split(|b| *b == 0) {
         if segment.is_empty() {
             continue;
@@ -81,7 +82,15 @@ pub fn run<R: Read, W: Write>(
 
         let path = Path::new(OsStr::from_bytes(segment));
         let normalized_path = normalizer.normalize(path)?;
-        renderer.render_path(&normalized_path)?;
+        if normalized_path.relative == last_rendered_path {
+            logger.warn(format!(
+                "Duplicate file detected: {:?}",
+                normalized_path.relative
+            ));
+        } else {
+            renderer.render_path(&normalized_path)?;
+            last_rendered_path = normalized_path.relative;
+        }
     }
     Ok(())
 }
@@ -240,6 +249,24 @@ mod tests {
 
         // Must contain file content → proves correct reading
         assert!(output.contains("fn main() {}"));
+    }
+
+    #[test]
+    fn duplicate_files_in_sequence_are_skipped() {
+        let temp_dir = tempdir().unwrap();
+        let origin = temp_dir.path();
+        let root = temp_dir.path();
+
+        fs::write(origin.join("a.rs"), "A").unwrap();
+
+        let input = Cursor::new(b"a.rs\0a.rs\0");
+        let mut output = Vec::new();
+
+        run_with_default_logger(input, &mut output, root, origin, None).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+
+        assert_eq!(output.matches("## File: a.rs").count(), 1);
     }
 
     #[test]
