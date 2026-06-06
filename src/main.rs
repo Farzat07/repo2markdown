@@ -292,6 +292,25 @@ mod tests {
     }
 
     #[test]
+    fn lexically_equivalent_paths_are_detected_as_duplicates() {
+        let temp_dir = tempdir().unwrap();
+        let origin = temp_dir.path();
+        let root = temp_dir.path();
+
+        fs::create_dir_all(origin.join("bla")).unwrap();
+        fs::write(origin.join("a.rs"), "A").unwrap();
+        fs::write(origin.join("b.rs"), "B").unwrap();
+
+        let input = Cursor::new(b"a.rs\0b.rs\0bla/../a.rs\0");
+        let mut output = Vec::new();
+
+        run_with_default_logger(input, &mut output, root, origin, None).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert_eq!(output.matches("## File: a.rs").count(), 1);
+    }
+
+    #[test]
     fn project_name_is_derived_from_root_by_default_even_if_directory_does_not_exist() {
         let temp_dir = tempdir().unwrap();
         let origin_base = temp_dir.path();
