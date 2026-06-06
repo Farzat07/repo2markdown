@@ -17,7 +17,7 @@ pub fn run<R: Read, W: Write>(
     output: W,
     root: &Path,
     origin_base: &Path,
-    project_name: Option<&str>,
+    project_title: Option<&str>,
     logger: Logger,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = Vec::new();
@@ -26,8 +26,8 @@ pub fn run<R: Read, W: Write>(
     let normalizer = Normalizer::new(root, origin_base)?;
 
     let mut renderer = Renderer::new(output).with_logger(logger);
-    let project_name = project_name.unwrap_or_else(|| derive_project_name(root));
-    renderer.render_header(project_name)?;
+    let project_title = project_title.unwrap_or_else(|| derive_project_title(root));
+    renderer.render_header(project_title)?;
 
     let mut seen_paths = HashSet::new();
     for segment in buf.split(|b| *b == 0) {
@@ -49,7 +49,7 @@ pub fn run<R: Read, W: Write>(
     Ok(())
 }
 
-fn derive_project_name(root: &Path) -> &str {
+fn derive_project_title(root: &Path) -> &str {
     if let Some(os_str_name) = root.file_name()
         && let Some(name) = os_str_name.to_str()
     {
@@ -70,7 +70,7 @@ mod tests {
     use crate::logger::Logger;
     use tempfile::tempdir;
 
-    use super::{DEFAULT_PROJECT_NAME, derive_project_name, run};
+    use super::{DEFAULT_PROJECT_NAME, derive_project_title, run};
 
     fn paths_to_null_sep_bytes(file_paths: &[&Path]) -> Vec<u8> {
         let mut output = Vec::new();
@@ -86,14 +86,14 @@ mod tests {
         output: W,
         root: &Path,
         origin_base: &Path,
-        project_name: Option<&str>,
+        project_title: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let logger = Logger::default();
-        run(input, output, root, origin_base, project_name, logger)
+        run(input, output, root, origin_base, project_title, logger)
     }
 
     #[test]
-    fn cli_with_empty_input_produces_empty_project_with_specified_project_name() {
+    fn cli_with_empty_input_produces_empty_project_with_specified_project_title() {
         let temp_dir = tempdir().unwrap();
         let input = Cursor::new(b"");
         let mut output = Vec::new();
@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn project_name_is_derived_from_root_by_default_even_if_directory_does_not_exist() {
+    fn project_title_is_derived_from_root_by_default_even_if_directory_does_not_exist() {
         let temp_dir = tempdir().unwrap();
         let origin_base = temp_dir.path();
         let input = Cursor::new(b"");
@@ -280,19 +280,19 @@ mod tests {
     }
 
     #[test]
-    fn project_name_fallsback_to_default_if_root_is_filesystem_root() {
-        assert_eq!(derive_project_name(Path::new("/")), DEFAULT_PROJECT_NAME);
+    fn project_title_fallsback_to_default_if_root_is_filesystem_root() {
+        assert_eq!(derive_project_title(Path::new("/")), DEFAULT_PROJECT_NAME);
     }
 
     #[test]
-    fn project_name_fallsback_if_root_ending_is_not_utf8() {
+    fn project_title_fallsback_if_root_ending_is_not_utf8() {
         let root = Path::new(OsStr::from_bytes(b"/root/fd\xC3"));
-        assert_eq!(derive_project_name(root), DEFAULT_PROJECT_NAME);
+        assert_eq!(derive_project_title(root), DEFAULT_PROJECT_NAME);
     }
 
     #[test]
-    fn deriving_project_name_from_root_ignores_trailing_slash() {
+    fn deriving_project_title_from_root_ignores_trailing_slash() {
         let root = Path::new("/root/repo2markdown/");
-        assert_eq!(derive_project_name(root), "repo2markdown");
+        assert_eq!(derive_project_title(root), "repo2markdown");
     }
 }

@@ -34,8 +34,8 @@ impl<W: Write> Renderer<W> {
         self
     }
 
-    pub fn render_header(&mut self, project_name: &str) -> std::io::Result<()> {
-        writeln!(self.output, "# {}", project_name)
+    pub fn render_header(&mut self, project_title: &str) -> std::io::Result<()> {
+        writeln!(self.output, "# {}", project_title)
     }
 
     pub fn render_path(&mut self, normalized_path: &NormalizedPath) -> std::io::Result<()> {
