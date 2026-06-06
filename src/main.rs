@@ -6,7 +6,11 @@ use std::{
     path::Path,
 };
 
-use repo2markdown::{normalizer::Normalizer, renderer::Renderer};
+use repo2markdown::{
+    logger::{Logger, Verbosity},
+    normalizer::Normalizer,
+    renderer::Renderer,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
@@ -40,7 +44,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stdin = io::stdin();
     let stdout = io::stdout();
 
-    run(stdin.lock(), stdout.lock(), root, origin, name.as_deref())
+    let logger = Logger::new(Verbosity::Normal);
+    run(
+        stdin.lock(),
+        stdout.lock(),
+        root,
+        origin,
+        name.as_deref(),
+        logger,
+    )
 }
 
 const DEFAULT_PROJECT_NAME: &str = "Project Outline";
@@ -51,13 +63,14 @@ pub fn run<R: Read, W: Write>(
     root: &Path,
     origin_base: &Path,
     project_name: Option<&str>,
+    logger: Logger,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = Vec::new();
     input.read_to_end(&mut buf)?;
 
     let normalizer = Normalizer::new(root, origin_base)?;
 
-    let mut renderer = Renderer::new(output);
+    let mut renderer = Renderer::new(output).with_logger(logger);
     let project_name = project_name.unwrap_or_else(|| derive_project_name(root));
     renderer.render_header(project_name)?;
 
@@ -87,10 +100,11 @@ fn derive_project_name(root: &Path) -> &str {
 mod tests {
     use std::ffi::OsStr;
     use std::fs;
-    use std::io::Cursor;
+    use std::io::{Cursor, Read, Write};
     use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
 
+    use repo2markdown::logger::Logger;
     use tempfile::tempdir;
 
     use super::{DEFAULT_PROJECT_NAME, derive_project_name, run};
@@ -104,6 +118,17 @@ mod tests {
         output
     }
 
+    fn run_with_default_logger<R: Read, W: Write>(
+        input: R,
+        output: W,
+        root: &Path,
+        origin_base: &Path,
+        project_name: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let logger = Logger::default();
+        run(input, output, root, origin_base, project_name, logger)
+    }
+
     #[test]
     fn cli_with_empty_input_produces_empty_project_with_specified_project_name() {
         let temp_dir = tempdir().unwrap();
@@ -112,7 +137,8 @@ mod tests {
         let root = temp_dir.path();
         let origin_base = temp_dir.path();
 
-        run(input, &mut output, root, origin_base, Some("Project name")).unwrap();
+        run_with_default_logger(input, &mut output, root, origin_base, Some("Project name"))
+            .unwrap();
 
         assert_eq!(String::from_utf8(output).unwrap(), "# Project name\n");
     }
@@ -127,7 +153,7 @@ mod tests {
 
         fs::write(origin_base.join("test_main.rs"), "fn main() {}").unwrap();
 
-        run(input, &mut output, root, origin_base, None).unwrap();
+        run_with_default_logger(input, &mut output, root, origin_base, None).unwrap();
 
         let output_str = String::from_utf8(output).unwrap();
 
@@ -146,7 +172,7 @@ mod tests {
         fs::write(origin_base.join("a.rs"), "A").unwrap();
         fs::write(origin_base.join("b.rs"), "B").unwrap();
 
-        run(input, &mut output, root, origin_base, None).unwrap();
+        run_with_default_logger(input, &mut output, root, origin_base, None).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
@@ -168,7 +194,7 @@ mod tests {
         fs::create_dir_all(&write_dir).unwrap();
         fs::write(write_dir.join("main.rs"), "fn main() {}").unwrap();
 
-        run(input, &mut output, root, origin_base, None).unwrap();
+        run_with_default_logger(input, &mut output, root, origin_base, None).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
@@ -186,7 +212,7 @@ mod tests {
         fs::create_dir_all(&origin_base).unwrap();
         fs::write(origin_base.join("main.rs"), "fn main() {}").unwrap();
 
-        run(input, &mut output, &root, &origin_base, None).unwrap();
+        run_with_default_logger(input, &mut output, &root, &origin_base, None).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
@@ -208,7 +234,7 @@ mod tests {
         let root = temp_dir2.path();
         fs::write(&filepath, "fn main() {}").unwrap();
 
-        run(input, &mut output, root, origin_base, None).unwrap();
+        run_with_default_logger(input, &mut output, root, origin_base, None).unwrap();
 
         let output = String::from_utf8(output).unwrap();
 
@@ -224,7 +250,7 @@ mod tests {
         let mut output = Vec::new();
         let root = temp_dir.path().join("repo2markdown");
 
-        run(input, &mut output, &root, origin_base, None).unwrap();
+        run_with_default_logger(input, &mut output, &root, origin_base, None).unwrap();
 
         let output_str = String::from_utf8(output).unwrap();
 

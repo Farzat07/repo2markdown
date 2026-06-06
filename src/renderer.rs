@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use crate::{normalizer::NormalizedPath, util::path_display::display_path};
+use crate::{logger::Logger, normalizer::NormalizedPath, util::path_display::display_path};
 
 const DEFAULT_MAX_FILE_SIZE: u64 = 1_000_000;
 
@@ -12,6 +12,7 @@ const DEFAULT_MAX_FILE_SIZE: u64 = 1_000_000;
 pub struct Renderer<W: Write> {
     output: W,
     max_file_size: u64,
+    logger: Logger,
 }
 
 impl<W: Write> Renderer<W> {
@@ -19,11 +20,17 @@ impl<W: Write> Renderer<W> {
         Self {
             output,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
+            logger: Logger::default(),
         }
     }
 
     pub fn with_max_file_size(mut self, max_file_size: u64) -> Self {
         self.max_file_size = max_file_size;
+        self
+    }
+
+    pub fn with_logger(mut self, logger: Logger) -> Self {
+        self.logger = logger;
         self
     }
 
@@ -75,16 +82,19 @@ impl<W: Write> Renderer<W> {
     }
 
     fn warn_about_filesize(&self, filename: &Path, filesize: u64) {
-        eprintln!(
+        self.logger.warn(format!(
             "Warning: skipping large file: {} ({} > limit {})",
             display_path(filename),
             human_readable_size(filesize),
             human_readable_size(self.max_file_size),
-        )
+        ))
     }
 
     fn warn_about_binary_file(&self, filename: &Path) {
-        eprintln!("Warning: skipping binary file: {}", display_path(filename))
+        self.logger.warn(format!(
+            "Warning: skipping binary file: {}",
+            display_path(filename)
+        ))
     }
 }
 
